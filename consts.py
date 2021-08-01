@@ -23,6 +23,7 @@ DATA_STYLE = 'UNPROCESSED_CSV'
 # Path for the data file and the data separator used
 DATA_SRC = 'data/america_factors_constituents.txt'
 DATA_SEP = '\t'
+COUNTRY = 'UNITED STATES'
 
 '''
 DATA_FIELDS specifies the input data fields to be used. In the case of processed
@@ -47,7 +48,7 @@ NUM_FEAT = 38
 When the names of the first two and last two input fields are different from 
 what is specified above, specify how they needs to be renamed
 '''
-RENAME_FIELDS = {'Periods': 'date', 'Backtest Returns': 'backtest returns', 'Universe_Returns': 'pct_change'}
+RENAME_FIELDS = {'Periods': 'date', 'Backtest Returns': 'backtest returns', 'Universe_Returns': 'pct_change', 'Country': 'country'}
 
 # Date format
 DATE_FORMAT = "%Y%m%d"

@@ -15,7 +15,7 @@ tf.random.set_seed(SEED)
 from sparta.tomer.alpha_go.consts import LOCAL_PATH, UNIVERSE_FILE_NAME,\
                                          PORTFOLIO_SIZE, DATA_STYLE, DATA_SRC,\
                                          DATA_SEP, DATA_FIELDS, RENAME_FIELDS,\
-                                         DATE_FORMAT
+                                         DATE_FORMAT, COUNTRY
 
 import fire
 
@@ -47,10 +47,11 @@ def get_data():
     elif DATA_STYLE == 'UNPROCESSED_CSV':
         df = pd.read_csv(DATA_SRC, sep=DATA_SEP)[DATA_FIELDS]
         df.rename(columns=RENAME_FIELDS, inplace=True)
+        df = df[df['country'] == COUNTRY]
         df['pct_change'] = df['pct_change']/100
         df['backtest returns'] = df['backtest returns']/100
         df['date'] = pd.to_datetime(df['date'],format=DATE_FORMAT)
-    elif DATA_STYLE == 'PROCESSED_PICKLE':    
+    elif DATA_STYLE == 'PROCESSED_PICKLE':
         df = pd.read_pickle(DATA_SRC)
     return df
 def main(fetch_new_data=False, find_best_param=False, workers=6):
