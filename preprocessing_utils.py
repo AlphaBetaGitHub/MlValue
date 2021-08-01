@@ -1,11 +1,13 @@
-from dal import fetch_market_data, fetch_financial_data, fetch_industry_type
-from consts import COUNTRY_CODE, BOOK_VALUE_CODE, REVENUE_CODE, SHARES_CODE
+from sparta.ab.dal import fetch_market_data, fetch_financial_data, fetch_industry_type
+from sparta.tomer.alpha_go.consts import COUNTRY_CODE, BOOK_VALUE_CODE, REVENUE_CODE,\
+                                         SHARES_CODE, MODE, FEAT_NORM, NUM_FEAT, \
+                                         FILLNA_ZERO_FIELDS, FILLNA_MEDIAN
 import numpy as np
 import datetime
 from sklearn import preprocessing
 import pandas as pd
 import pickle as pkl
-from feature_engineering_utils import FeatureConstructor, SklearnWrapper
+from sparta.tomer.alpha_go.feature_engineering_utils import FeatureConstructor, SklearnWrapper
 from pathlib import Path
 import pdb
 def get_universe_data(LOCAL_PATH, UNIVERSE_FILE_NAME):
@@ -206,12 +208,13 @@ def handle_missing_values(enriched_data):
 
     # deal with extreme values
     enriched_data.replace([np.inf, -np.inf], np.nan, inplace=True)
-
-    # fill nan values with the mean of the below and above values
-    nan_columns = ['retvol', 'maxret', 'mom_1', 'logsize', 'sp', 'turn', 'b2m', 'indmom_a_12',
-                   'logdolvol']
-    #for column in nan_columns:
-    #    enriched_data[column] = enriched_data[column].fillna(enriched_data.groupby('month')[column].transform('median'))
+    # fill nan values with the cross section media
+    factors = enriched_data.columns[2:2+NUM_FEAT]
+    for f in FILLNA_ZERO_FIELDS:
+        enriched_data[f] = enriched_data[f].fillna(0)
+    if FILLNA_MEDIAN:
+        for fidx,f in enumerate(factors):
+            enriched_data[f] = enriched_data[f].fillna(enriched_data.groupby('date')[f].transform('median'))
 
     # lose irrelevant columns in order to spot the missing na
     #enriched_data = enriched_data.sort_values(by=['tradingitemid', 'month']).reset_index(drop=True)
@@ -237,39 +240,80 @@ def split_and_scale_data(enriched_data, year):
     :param enriched_data: features df
     :return: splitted and scaled df
     """
+    #scaler = preprocessing.StandardScaler()
+    #enriched_data = enriched_data.groupby('date').apply(SklearnWrapper(scaler))
     train = enriched_data[(enriched_data.date < datetime.datetime(year, 1, 1)) &
                           (enriched_data.date >= datetime.datetime(year-5, 1, 1))]
+    mean = train['pct_change'].mean()
+    std = train['pct_change'].std()
+    bins = list(np.arange(0,1.01,0.1))
+
+    #train = train[(train['pct_change'] > mean + 0.25*std) | (train['pct_change'] < mean - 0.25*std)]
     test = enriched_data[(enriched_data.date >= datetime.datetime(year, 1, 1)) & 
                          (enriched_data.date < datetime.datetime(year+1, 1, 1))]
-
+    if FEAT_NORM == 'RANK':
+        factors = train.columns[2:2+NUM_FEAT]
+        for fidx,f in enumerate(factors):
+            #train[f+'_bins'] = pd.DataFrame(train.groupby('date')[f].apply(lambda x: pd.qcut(x.rank(method='first'),bins,labels=False,duplicates='drop')))
+            #test[f+'_bins'] = pd.DataFrame(test.groupby('date')[f].apply(lambda x: pd.qcut(x.rank(method='first'),bins,labels=False,duplicates='drop')))
+            train[f+'_rank'] = pd.DataFrame(train.groupby('date')[f].apply(lambda x: (x.rank()/x.rank().max()-0.5)*2))
+            test[f+'_rank'] = pd.DataFrame(test.groupby('date')[f].apply(lambda x: (x.rank()/x.rank().max()-0.5)*2))
+        #train['pct_change'] = pd.DataFrame(train.groupby('date')['pct_change'].apply(lambda x: (x.rank()/x.rank().max()-0.5)*2))
+        #test['pct_change'] = pd.DataFrame(test.groupby('date')['pct_change'].apply(lambda x: (x.rank()/x.rank().max()-0.5)*2))
+        mean = train['pct_change'].mean()
+        std = train['pct_change'].std()
+        bins = list(np.arange(0,1.01,0.1))
+        #train = train[(train['pct_change'] > mean + 0.25*std) | (train['pct_change'] < mean - 0.25*std)]
+        train = train[['isin', 'date'] + [f+'_rank' for f in factors] + ['pct_change', 'backtest returns']]
+        test = test[['isin', 'date'] + [f+'_rank' for f in factors] + ['pct_change', 'backtest returns']]
     train.set_index(['isin', 'date'], drop=True, inplace=True)
     test.set_index(['isin', 'date'], drop=True, inplace=True)
-
-    train_x, train_y, train_ret = train.drop(['pct_change', 'backtest returns'], axis=1), train[['pct_change']], train[['backtest returns']]
+    train_x, train_y, train_ret = train.drop(['pct_change',  'backtest returns'], axis=1), train[['pct_change']], train[['backtest returns']]
     test_x, test_y, test_ret = test.drop(['pct_change', 'backtest returns'], axis=1), test[['pct_change']], test[['backtest returns']]
+    '''train_x =  (train.groupby('isin').shift().iloc[:,:-1]-train.iloc[:,:-1]).dropna(axis=0).drop(['pct_change'],axis=1)
+    train_y =  (train.groupby('isin').shift().iloc[:,:-1]-train.iloc[:,:-1]).dropna(axis=0)[['pct_change']]
+    train_ret = train.loc[~(train.groupby('isin').shift().iloc[:,:-1]-train.iloc[:,:-1]).isna().any(axis=1)][['backtest returns']] 
+    test_x =  (test.groupby('isin').shift().iloc[:,:-1]-test.iloc[:,:-1]).dropna(axis=0).drop(['pct_change'],axis=1)
+    test_y =  (test.groupby('isin').shift().iloc[:,:-1]-test.iloc[:,:-1]).dropna(axis=0)[['pct_change']]
+    test_ret = test.loc[~(test.groupby('isin').shift().iloc[:,:-1]-test.iloc[:,:-1]).isna().any(axis=1)][['backtest returns']]''' 
+    if MODE == 'CLS':
+        test_y =  pd.DataFrame(test_y.groupby('date')['pct_change'].apply(lambda x: pd.qcut(x.rank(method='first'),bins,labels=False,duplicates='drop')))
+        train_y =  pd.DataFrame(train_y.groupby('date')['pct_change'].apply(lambda x: pd.qcut(x.rank(method='first'),bins,labels=False,duplicates='drop')))
+        '''train_y[(train_y > 5)] = 20
+        train_y[(train_y < 4)] = 0
+        train_y[(train_y > 3) & (train_y < 6)] = 10
+        train_y = train_y / 10
+        test_y[(test_y > 5)] = 20
+        test_y[(test_y < 4)] = 0
+        test_y[(test_y > 3) & (test_y < 6)] = 10
+        test_y = test_y / 10'''
+    if FEAT_NORM == 'RANK':
+        train_scaled_x = train_x
+        test_scaled_x = test_x
+    else:
+        scaler = preprocessing.StandardScaler()
+        train_scaled_x = train_x.groupby('date').apply(SklearnWrapper(scaler))
+        scaler = preprocessing.StandardScaler()
+        test_scaled_x = test_x.groupby('date').apply(SklearnWrapper(scaler))
+    #feat_scaler = preprocessing.RobustScaler()
+    #train_scaled_x = feat_scaler.fit_transform(train_x.values)
+    #train_scaled_x = pd.DataFrame(train_scaled_x, columns=train_x.columns, index=train_x.index)
+    #test_scaled_x = feat_scaler.transform(test_x.values)
+    #test_scaled_x = pd.DataFrame(test_scaled_x, columns=test_x.columns, index=test_x.index)
+    #with open(f'data/results/feat_scaler-{year}.pkl','wb') as f:
+    #    pkl.dump(feat_scaler, f)
 
-    '''scaler = preprocessing.StandardScaler()
-    train_scaled_x = train_x.groupby('date').apply(SklearnWrapper(scaler))
-
-    scaler = preprocessing.StandardScaler()
-    test_scaled_x = test_x.groupby('date').apply(SklearnWrapper(scaler))'''
-    feat_scaler = preprocessing.RobustScaler()
-    train_scaled_x = feat_scaler.fit_transform(train_x.values)
-    train_scaled_x = pd.DataFrame(train_scaled_x, columns=train_x.columns, index=train_x.index)
-    test_scaled_x = feat_scaler.transform(test_x.values)
-    test_scaled_x = pd.DataFrame(test_scaled_x, columns=test_x.columns, index=test_x.index)
-    with open(f'data/results/feat_scaler-{year}.pkl','wb') as f:
-        pkl.dump(feat_scaler, f)
-
-    targ_scaler = preprocessing.MinMaxScaler()
-    #train_scaled_y = train_y.copy()
-    train_scaled_y = targ_scaler.fit_transform(train_y.values)
-    train_scaled_y = pd.DataFrame(train_scaled_y, columns=train_y.columns, index=train_y.index)
-    #test_scaled_y = test_y.copy()
-    test_scaled_y = targ_scaler.transform(test_y.values)
-    test_scaled_y = pd.DataFrame(test_scaled_y, columns=test_y.columns, index=test_y.index)
-    with open(f'data/results/targ_scaler-{year}.pkl','wb') as f:
-        pkl.dump(targ_scaler, f)
+    if MODE == 'CLS':
+        train_scaled_y = train_y.copy()
+        test_scaled_y = test_y.copy()
+    else:
+        #targ_scaler = preprocessing.MinMaxScaler()
+        #train_scaled_y = targ_scaler.fit_transform(train_y.values)
+        train_scaled_y = train_y#pd.DataFrame(train_scaled_y, columns=train_y.columns, index=train_y.index)
+        #test_scaled_y = targ_scaler.transform(test_y.values)
+        test_scaled_y = test_y#pd.DataFrame(test_scaled_y, columns=test_y.columns, index=test_y.index)
+        #with open(f'data/results/targ_scaler-{year}.pkl','wb') as f:
+        #    pkl.dump(targ_scaler, f)
 
     train_data = train_scaled_x.merge(train_y, left_index=True, right_index=True)
     return train_scaled_x, train_scaled_y, train_ret, test_scaled_x, test_scaled_y, test_ret, train_data

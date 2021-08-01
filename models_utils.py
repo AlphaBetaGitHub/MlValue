@@ -5,9 +5,9 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import cross_val_score
 from xgboost import XGBRegressor
 
-from consts import VALIDATION_SIZE
-from model_constructor import ModelConstructor
-from nn_constructor import Net
+from sparta.tomer.alpha_go.consts import VALIDATION_SIZE
+from sparta.tomer.alpha_go.model_constructor import ModelConstructor
+from sparta.tomer.alpha_go.nn_constructor import Net
 import pdb
 
 def cv_comparison(models, X, y, cv):
@@ -195,7 +195,7 @@ def run_nn_model(year, X_train, y_train, X_test, y_test, y_test_unscaled,
     nn_model.fit_model()
     y_pred = nn_model.predict
     nn_model.loss_evaluate()
-    nn_model.evaluate(y_pred)
+    #nn_model.evaluate(y_pred)
 
     predictions = X_test.copy(deep=True)
     predictions['y_pred'] = y_pred

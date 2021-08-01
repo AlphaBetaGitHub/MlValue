@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from portfolio_metrics import portfolio_metrics, yearly_returns
+from sparta.ab.portfolio_metrics import portfolio_metrics, yearly_returns
 import pandas as pd
 
-from alpha_go.consts import LOCAL_PATH
+from sparta.tomer.alpha_go.consts import LOCAL_PATH
 import pdb
 
 class ReportBuilder(object):
@@ -77,6 +77,14 @@ class ReportBuilder(object):
         save portfolio returns
         :return: None
         """
+        if self.year == 2021:
+            mode = 'w' if self.model_type == 'random_forest' else 'a'
+            self.portfolio_metrics.to_csv(LOCAL_PATH+ f'results/results_{self.year}_pf{self.portfolio_size}' + '.csv', mode=mode)
+            with open(LOCAL_PATH+ f'results/results_{self.year}_pf{self.portfolio_size}' + '.csv', 'a') as f:
+                f.write('\n')
+            self.yearly_returns.to_csv(LOCAL_PATH+ f'results/results_{self.year}_pf{self.portfolio_size}' + '.csv', mode='a')
+            with open(LOCAL_PATH+ f'results/results_{self.year}_pf{self.portfolio_size}' + '.csv', 'a') as f:
+                f.write('\n')
         writer = pd.ExcelWriter(Path(self.output_folder + self.model_type + f'_metrics_{self.year}' + '.xlsx'), engine='openpyxl')
         self.portfolio_metrics.to_excel(writer, sheet_name=f'portfolio_metrics_{self.portfolio_size}_{self.year}')
         self.yearly_returns.to_excel(writer, sheet_name=f'yearly_returns_{self.portfolio_size}_{self.year}')

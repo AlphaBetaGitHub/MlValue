@@ -9,10 +9,10 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 from tensorflow.python.keras.optimizer_v2.gradient_descent import SGD
-from tensorflow.keras.optimizers import Adam 
+from tensorflow.keras.optimizers import Adam
 from tensorflow.python.keras.wrappers.scikit_learn import KerasRegressor
-
-from consts import EPOCHS_NUMBER, LR, BATCH_SIZE, LOCAL_PATH, PATIENCE, L1
+from sklearn import preprocessing
+from sparta.tomer.alpha_go.consts import EPOCHS_NUMBER, LR, BATCH_SIZE, LOCAL_PATH, PATIENCE, L1, MODE, NUM_FEAT
 
 from datetime import datetime
 import pdb
@@ -22,13 +22,27 @@ class Net(tf.keras.Model):
 
     def __init__(self, year, X_train, y_train, X_test, y_test, train_data, model, find_best_param, validation_size, workers):
         super().__init__()
+        self.num_feat = NUM_FEAT
         self.year = year
         self.model_type = model
         self.model_file_name = LOCAL_PATH + f'/results/{model}/{year}_best_model_.h5'
         self.split_train_data(X_train, y_train, find_best_param)
+        if MODE == 'CLS':
+            self.enc = preprocessing.OneHotEncoder(handle_unknown='ignore')
+            self.y_train = self.enc.fit_transform(self.y_train.reshape(-1,1)).toarray()
+            self.y_val = self.enc.fit_transform(self.y_val.reshape(-1,1)).toarray()
+            self.y_test = self.enc.transform(y_test.values.reshape(-1,1)).toarray()
+            self.finact = 'softmax'
+            self.loss = 'categorical_crossentropy'
+            self.finout = 3
+        else:
+            self.finact = 'linear'
+            self.loss = 'mse'
+            self.finout = 1
+            self.y_test = np.array(y_test).reshape(-1, )
+
         self._train_data = train_data.copy(deep=True)
         self.X_test = X_test
-        self.y_test = np.array(y_test).reshape(-1, )
         #'glorot_normal' = tf.keras.initializers.GlorotNormal(seed=42)
         self.find_best_param = find_best_param
         '''self.best_params = {'NN5': {'dropout': 0.25, 'lr': 1e-2}, 'NN4':{'dropout':0.0, 'lr': 0.1},
@@ -37,9 +51,12 @@ class Net(tf.keras.Model):
         '''self.best_params = {'NN5': {'dropout': 0.0, 'lr': LR}, 'NN4':{'dropout':0.0, 'lr': LR},
                             'NN3': {'dropout': 0.0, 'lr': LR}, 'NN2':{'dropout':0.0, 'lr': LR},
                             'NN1': {'dropout': 0.0, 'lr': LR}}'''
-        self.best_params = {'NN5': {'dropout': 0.25, 'lr': LR}, 'NN4':{'dropout':0.0, 'lr': LR},
+        '''self.best_params = {'NN5': {'dropout': 0.25, 'lr': LR}, 'NN4':{'dropout':0.0, 'lr': LR},
                             'NN3': {'dropout': 0.0, 'lr': LR}, 'NN2':{'dropout':0.25, 'lr': LR},
-                            'NN1': {'dropout': 0.0, 'lr': LR}}
+                            'NN1': {'dropout': 0.0, 'lr': LR}}'''
+        self.best_params = {'NN5': {'dropout': 0.5, 'lr': LR*9/10000}, 'NN4':{'dropout':0.5, 'lr': LR*9/10000},
+                            'NN3': {'dropout': 0.5, 'lr': LR*3/100}, 'NN2':{'dropout':0.25, 'lr': LR*3/100},
+                            'NN1': {'dropout': 0.0, 'lr': 9*LR/10}}
         self.model = getattr(self,model)(**self.best_params[model])
         self.validation_size = validation_size
         self.workers = workers
@@ -101,7 +118,7 @@ class Net(tf.keras.Model):
     def NN5(self, dropout=0.0, l1=L1, lr=1e-2):
         model = Sequential()
         model.add(
-            Dense(32, input_dim=7, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
+            Dense(32, input_dim=self.num_feat, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
         model.add(Dropout(dropout))
         model.add(BatchNormalization())
@@ -119,10 +136,9 @@ class Net(tf.keras.Model):
         model.add(Dense(2, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
         model.add(BatchNormalization())
-        model.add(Dense(1, activation='linear', kernel_regularizer=regularizers.l1_l2(l1=l1),
+        model.add(Dense(self.finout, activation=self.finact, kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
-        #model.add(BatchNormalization())
-        model.compile(optimizer=SGD(learning_rate=lr), loss='mse')
+        model.compile(optimizer=SGD(learning_rate=lr), loss=self.loss)
 
         return model
 
@@ -130,7 +146,7 @@ class Net(tf.keras.Model):
 
         model = Sequential()
         model.add(
-            Dense(32, input_dim=7, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
+            Dense(32, input_dim=self.num_feat, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
         model.add(Dropout(dropout))
         model.add(BatchNormalization())
@@ -145,10 +161,9 @@ class Net(tf.keras.Model):
         model.add(Dense(4, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
         model.add(BatchNormalization())
-        model.add(Dense(1, activation='linear', kernel_regularizer=regularizers.l1_l2(l1=l1),
+        model.add(Dense(self.finout, activation=self.finact, kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
-        #model.add(BatchNormalization())
-        model.compile(optimizer=SGD(learning_rate=lr), loss='mse')
+        model.compile(optimizer=SGD(learning_rate=lr), loss=self.loss)
 
         return model
 
@@ -156,7 +171,7 @@ class Net(tf.keras.Model):
     def NN3(self, dropout=0.0, l1=L1, lr=1e-2):
         model = Sequential()
         model.add(
-            Dense(32, input_dim=7, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
+            Dense(32, input_dim=self.num_feat, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
         model.add(Dropout(dropout))
         model.add(BatchNormalization())
@@ -167,10 +182,9 @@ class Net(tf.keras.Model):
         model.add(Dense(8, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
         model.add(BatchNormalization())
-        model.add(Dense(1, activation='linear', kernel_regularizer=regularizers.l1_l2(l1=l1),
+        model.add(Dense(self.finout, activation=self.finact, kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
-        #model.add(BatchNormalization())
-        model.compile(optimizer=SGD(learning_rate=lr), loss='mse')
+        model.compile(optimizer=SGD(learning_rate=lr), loss=self.loss)
 
         return model
 
@@ -179,28 +193,27 @@ class Net(tf.keras.Model):
     def NN2(self, dropout=0.0, l1=L1, lr=1e-2):
 
         model = Sequential()
-        model.add(Dense(32, input_dim=7, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
+        model.add(Dense(32, input_dim=self.num_feat, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
         model.add(Dropout(dropout))
         model.add(BatchNormalization())
         model.add(Dense(16, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
         model.add(BatchNormalization())
-        model.add(Dense(1, activation='linear', kernel_regularizer=regularizers.l1_l2(l1=l1),
+        model.add(Dense(self.finout, activation=self.finact, kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
-        #model.add(BatchNormalization())
-        model.compile(optimizer=SGD(learning_rate=lr), loss='mse')
+        model.compile(optimizer=SGD(learning_rate=lr), loss=self.loss)
 
         return model
 
     def NN1(self, dropout=0.0, l1=L1, lr=1e-2):
         model = Sequential()
-        model.add(Dense(32, input_dim=7, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
+        model.add(Dense(32, input_dim=self.num_feat, activation='relu', kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
         model.add(BatchNormalization())
-        model.add(Dense(1, activation='linear', kernel_regularizer=regularizers.l1_l2(l1=l1),
+        model.add(Dense(self.finout, activation=self.finact, kernel_regularizer=regularizers.l1_l2(l1=l1),
                   kernel_initializer='glorot_normal'))
-        model.compile(optimizer=Adam(learning_rate=lr), loss='mse')
+        model.compile(optimizer=SGD(learning_rate=lr), loss=self.loss)
 
         return model
 
@@ -242,10 +255,13 @@ class Net(tf.keras.Model):
         #r1 = self.model.predict(self.X_test[:200000])
         #r2 = self.model.predict(self.X_test[200000:])
         #r = np.concatenate([r1,r2]).reshape(-1)
-        r = self.model.predict(self.X_test).reshape(-1)
+        if MODE == 'CLS':
+            r = np.argmax(self.model.predict(self.X_test),axis=1) + np.max(self.model.predict(self.X_test),axis=1)
+        else:
+            r = self.model.predict(self.X_test).reshape(-1)
         return r
     def loss_evaluate(self):
-        loss = self.model.evaluate(self.X_test, self.y_test, steps=2)
+        loss = self.model.evaluate(self.X_test, self.y_test)
         print(f"loss: {loss}")
 
     def evaluate(self, y_pred):

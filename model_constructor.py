@@ -1,8 +1,9 @@
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import GridSearchCV, PredefinedSplit
-from xgboost import XGBRegressor
+from xgboost import XGBRegressor, XGBClassifier
+from sparta.tomer.alpha_go.consts import MODE
 import pandas as pd
 import pdb
 
@@ -113,7 +114,7 @@ class ModelConstructor(object):
         return {'n_estimators': 1000,
                 'max_depth': 2,
                 'learning_rate': 0.1,
-                'random_state': 42
+                'random_state': 42,
                 }
 
     # def grid_and_train_model(self, grid_params):
@@ -208,7 +209,17 @@ class ModelConstructor(object):
         #self.model = RandomForestRegressor(n_estimators=300,max_depth=6,random_state = 42,n_jobs=8)
 
         # assemble best param with new model
-        self.model = RandomForestRegressor(n_estimators=self.best_params['n_estimators'],
+        if MODE == 'CLS':
+            self.model = RandomForestClassifier(n_estimators=self.best_params['n_estimators'],
+                                           max_depth=self.best_params['max_depth'],
+                                           random_state=self.best_params['random_state'],
+                                           #max_features=self.best_params['max_features'],
+                                           #criterion='mse',#self.best_params['criterion'],
+                                           #bootstrap=self.best_params['bootstrap'],
+                                           n_jobs=self.workers,
+                                           )
+        else:
+            self.model = RandomForestRegressor(n_estimators=self.best_params['n_estimators'],
                                            max_depth=self.best_params['max_depth'],
                                            random_state=self.best_params['random_state'],
                                            #max_features=self.best_params['max_features'],
@@ -222,8 +233,11 @@ class ModelConstructor(object):
         fidx = self.model.feature_importances_.argsort()
         for name, importance in zip(np.array(self.feature_names)[fidx], self.model.feature_importances_[fidx]): 
             print(name, "=", importance)
-
-        return self.model.predict(self.X_test)
+        if MODE == 'CLS':
+            r = self.model.predict(self.X_test) + np.max(self.model.predict_proba(self.X_test),axis=1)
+        else:
+            r = self.model.predict(self.X_test)
+        return r
 
     def deploy_xgboost_model(self, find_best_param):
         print('-' * 25, ' Initialize xgboost Regressor ', '-' * 25)
@@ -232,12 +246,14 @@ class ModelConstructor(object):
             self._grid_and_train_model(xgboost_params)
         else:
             self.best_params = self.get_xgboost_best_params()
-
-        self.model = XGBRegressor(
-            n_estimators=self.best_params['n_estimators'],
-            max_depth=self.best_params['max_depth'],
-            random_state=self.best_params['random_state'],
-            learning_rate=self.best_params['learning_rate'],
+        if MODE == 'CLS':
+            self.model = XGBClassifier(
+            **self.best_params,
+            n_jobs=self.workers,
+        )
+        else:
+            self.model = XGBRegressor(
+            **self.best_params,
             n_jobs=self.workers,
         )
         self.model.fit(self.X_train, self.y_train)
@@ -246,9 +262,12 @@ class ModelConstructor(object):
         print('Xgboost model feature importance:')
         for name, importance in zip(np.array(self.feature_names)[fidx], self.model.feature_importances_[fidx]):
             print(name, "=", importance)
-
         # assemble best param with new model
-        return self.model.predict(self.X_test)
+        if MODE == 'CLS':
+            r = self.model.predict(self.X_test) + np.max(self.model.predict_proba(self.X_test),axis=1)
+        else:
+            r = self.model.predict(self.X_test)
+        return r
 
     def evaluate(self, y_pred):
         """Evaluate ML models"""
